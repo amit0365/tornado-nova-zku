@@ -12,6 +12,32 @@ Other facts about this version:
 
 This project was presented on LisCon 2021. [Slides](https://docs.google.com/presentation/d/1CbI6fiWvgwoD_1ahcSR62wD7V4TdSzkdL2RwAeMPagQ/edit#slide=id.gf731d8850e_0_133)
 
+
+## My understanding
+
+Torndao trees- merkle trees are computed offchain and then prove validity on chain 
+
+Subtrees are of certain length as we need to specify the length of the proof
+
+Contracts will check the old root and new root, both as public input.
+
+To verify the snarks, each public input is used to do one EC addition and multiplication which costs around 6000 gwei. However, to optimise gas prices for larger subtrees, all inputs are hashed and given as a public input to the snark
+
+
+
+Relayers are used by clients who dont have any eth balance to pay for gas fee. They take a cut from the transaction fee and withdraw funds by the customer. They cannot change the transaction.
+
+Deposit are done from mainnet, L1 and the funds are directed to tornadocash pool on L2, xdai by the omnibridge which requires 20 confirmation.
+
+Shield transaction, no external eth involved i.e. no deposits and no withdrawals. These transfer is done on L2, cheap.
+
+While withdrawing funds from tornado pool, the bridge funds the amount back into mainnet.
+
+Thus the user never has to change network from the mainnet.
+
+In order to protect privacy, users are advised to deposit and withdraw standard amounts to protect their anonymity.
+
+
 ## Usage
 
 ```shell
