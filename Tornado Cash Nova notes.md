@@ -1,83 +1,189 @@
-Tornado cash Nova
+Tornado Cash Nova
 
-Torndao trees- merkle trees are computed offchain and then prove validity on chain 
+Instead of hashing two random numbers in the commitment as in the Core version. The Nova upgrade uses three numbers: amount, public key and blinding. The blinding is a random number used instead of the secret in the previous version. 
 
-Subtrees are of certain length as we need to specify the length of the proof
+The commitment is now computed by the hash of the three values mentioned above. Whereas the nullifier is the hash of commitment and the corresponding merkle path.
 
-Contracts will check the old root and new root, both as public input.
 
-circuits/BatchTreeUpdate.circom
+```js
+/*
+Utxo structure:
+{
+    amount,
+    pubkey,
+    blinding, // random number
+}
 
-Using circom v1 so have to specify private inputs. From circom v2, all inputs are assummed private unless specified in the main.
+commitment = hash(amount, pubKey, blinding)
+nullifier = hash(commitment, merklePath, sign(privKey, commitment, merklePath))
+*/
+```
+
+While depositing, the user needs to generate a snark proof, which was not required in the Core version. The 
+
 ```circom=
+// Universal JoinSplit transaction with nIns inputs and 2 outputs
+template Transaction(levels, nIns, nOuts, zeroLeaf) {
+    signal input root;
+    // extAmount = external amount used for deposits and withdrawals
+    // correct extAmount range is enforced on the smart contract
+    // publicAmount = extAmount - fee
+    signal input publicAmount;
+    signal input extDataHash;
 
-// Inserts a leaf batch into a tree
-// Checks that tree previously contained zero leaves in the same position
-// Hashes leaves with Poseidon hash
-// `batchLevels` should be less than `levels`
-template BatchTreeUpdate(levels, batchLevels, zeroBatchLeaf) {
-  var height = levels - batchLevels;
-  var nLeaves = 1 << batchLevels;
-  signal input argsHash;
-  signal private input oldRoot;
-  signal private input newRoot;
-  signal private input pathIndices;
-  signal private input pathElements[height];
-  signal private input hashes[nLeaves];
-  signal private input instances[nLeaves];
-  signal private input blocks[nLeaves];
+    // data for transaction inputs
+    signal         input inputNullifier[nIns];
+    signal private input inAmount[nIns];
+    signal private input inPrivateKey[nIns];
+    signal private input inBlinding[nIns];
+    signal private input inPathIndices[nIns];
+    signal private input inPathElements[nIns][levels];
 
-  // Check that hash of arguments is correct
-  // We compress arguments into a single hash to considerably reduce gas usage on chain
-  component argsHasher = TreeUpdateArgsHasher(nLeaves);
-  argsHasher.oldRoot <== oldRoot;
-  argsHasher.newRoot <== newRoot;
-  argsHasher.pathIndices <== pathIndices;
-  for(var i = 0; i < nLeaves; i++) {
-    argsHasher.hashes[i] <== hashes[i];
-    argsHasher.instances[i] <== instances[i];
-    argsHasher.blocks[i] <== blocks[i];
-  }
-  argsHash === argsHasher.out;
+    // data for transaction outputs
+    signal         input outputCommitment[nOuts];
+    signal private input outAmount[nOuts];
+    signal private input outPubkey[nOuts];
+    signal private input outBlinding[nOuts];
+
+    component inKeypair[nIns];
+    component inSignature[nIns];
+    component inCommitmentHasher[nIns];
+    component inNullifierHasher[nIns];
+    component inTree[nIns];
+    component inCheckRoot[nIns];
+    var sumIns = 0;
 ```
 
-To verify the snarks, each public input is used to do one EC addition and multiplication which costs around 6000 gwei. 
+The proof follows the construction of the usual split joint transaction scheme. In the case of  Alice sending Bob some money, we need both their UTXO's as inputs. 
 
-Verifier2.sol
-```js=
-    function verifyProof(
-        bytes memory proof,
-        uint256[7] memory input
-    ) public view returns (bool) {
-        uint256[8] memory p = abi.decode(proof, (uint256[8]));
-        for (uint8 i = 0; i < p.length; i++) {
-            // Make sure that each element in the proof is less than the prime q
-            require(p[i] < PRIME_Q, "verifier-proof-element-gte-prime-q");
-        }
-        Pairing.G1Point memory proofA = Pairing.G1Point(p[0], p[1]);
-        Pairing.G2Point memory proofB = Pairing.G2Point([p[2], p[3]], [p[4], p[5]]);
-        Pairing.G1Point memory proofC = Pairing.G1Point(p[6], p[7]);
+After the transaction, These leaves are marked spent in the merkle tree. This results in two different output UTXO's for Alice and Bob which are inserted into the merkle tree as new leaves.
 
-        VerifyingKey memory vk = verifyingKey();
-        // Compute the linear combination vkX
-        Pairing.G1Point memory vkX = vk.IC[0];
-        for (uint256 i = 0; i < input.length; i++) {
-            // Make sure that every input is less than the snark scalar field
-            require(input[i] < SNARK_SCALAR_FIELD, "verifier-input-gte-snark-scalar-field");
-            vkX = Pairing.plus(vkX, Pairing.scalarMul(vk.IC[i + 1], input[i]));
+For each input a commitment hash is computed using the UTXO. Then we check that the commitment is present in the merkle tree. However, when the input amount is 0 then we do not check the inclusion. 
+
+This would happen when a user deposits some amount. In this case there are no inputs from the user, so contract generates two input UTXO's with zero amount and random numbers in pubkey and blinding. 
+
+Additionally we verify the correct signature by the private key corresponding to the given public key in the UTXO.
+
+Moreover, the nullifier hash is computed using the commitment and the merkle path. Once computed this emitted as events to be included in the list of spent nullifiers.
+
+```circom=+
+// verify correctness of transaction inputs
+    for (var tx = 0; tx < nIns; tx++) {
+        inKeypair[tx] = Keypair();
+        inKeypair[tx].privateKey <== inPrivateKey[tx];
+
+        inCommitmentHasher[tx] = Poseidon(3);
+        inCommitmentHasher[tx].inputs[0] <== inAmount[tx];
+        inCommitmentHasher[tx].inputs[1] <== inKeypair[tx].publicKey;
+        inCommitmentHasher[tx].inputs[2] <== inBlinding[tx];
+
+        inSignature[tx] = Signature();
+        inSignature[tx].privateKey <== inPrivateKey[tx];
+        inSignature[tx].commitment <== inCommitmentHasher[tx].out;
+        inSignature[tx].merklePath <== inPathIndices[tx];
+
+        inNullifierHasher[tx] = Poseidon(3);
+        inNullifierHasher[tx].inputs[0] <== inCommitmentHasher[tx].out;
+        inNullifierHasher[tx].inputs[1] <== inPathIndices[tx];
+        inNullifierHasher[tx].inputs[2] <== inSignature[tx].out;
+        inNullifierHasher[tx].out === inputNullifier[tx];
+
+        inTree[tx] = MerkleProof(levels);
+        inTree[tx].leaf <== inCommitmentHasher[tx].out;
+        inTree[tx].pathIndices <== inPathIndices[tx];
+        for (var i = 0; i < levels; i++) {
+            inTree[tx].pathElements[i] <== inPathElements[tx][i];
         }
+
+        // check merkle proof only if amount is non-zero
+        inCheckRoot[tx] = ForceEqualIfEnabled();
+        inCheckRoot[tx].in[0] <== root;
+        inCheckRoot[tx].in[1] <== inTree[tx].root;
+        inCheckRoot[tx].enabled <== inAmount[tx];
+
+        // We don't need to range check input amounts, since all inputs are valid UTXOs that
+        // were already checked as outputs in the previous transaction (or zero amount UTXOs that don't
+        // need to be checked either).
+
+        sumIns += inAmount[tx];
+    }
+
+    component outCommitmentHasher[nOuts];
+    component outAmountCheck[nOuts];
+    var sumOuts = 0;
 ```
 
-However, to optimise gas prices for larger subtrees, all inputs are hashed and given as a public input to the snark
+For outputs, their commitment is checked and published as a public output. To prevent overflow, the output amount is checked to fit 248bits. Then the circuit checks for duplicates among the input nullifiers.
 
-Relayers are used by clients who dont have any eth balance to pay for gas fee. They take a cut from the transaction fee and withdraw funds by the customer. They cannot change the transaction.
+Let's take an example of depositing 3 eth and then withdrawing 0.5 eth. 
 
-Deposit are done from mainnet, L1 and the funds are directed to tornadocash pool on L2, xdai by the omnibridge which requires 20 confirmation.
+The user starts by deposits 3 eth as the first transaction. This generates two input UTXO's. A dummy input with zero amount and random numbers for the other two fields. The publicAmount, defined as a public input is set to 3 eth. This generates two outputs UTXO's. One of which has a zero amount and the random numbers while the other has amount equal to 3 eth and public key set to the user and a random blinding. 
 
-Shield transaction, no external eth involved i.e. no deposits and no withdrawals. These transfer is done on L2, cheap.
+The second transaction has a shielded input of 3 eth. The observer only notices some input being marked as "spent" in the merkle tree without gaining any more information. The other input is a dummy as before. 
 
-While withdrawing funds from tornado pool, the bridge funds the amount back into mainnet.
+The publicAmount will be set to -0.5 eth which is send to the withdraw address as the first output. The negative sign means that the contract pays the amount to some address. This is followed by another shielded output of 2.5 eth, which belongs to the public key of the withdrawer. Note that the latter amount is still in the Tornado cash network.
 
-Thus the user never has to change network from the mainnet.
+Finally, to correctly execute the transaction we need to check the following:
+1) The sum of amount in inputs plus the publicAmount should be equal to the corresponding sum in the outputs. This is defined as amount variant in line 104.
 
-In order to protect privacy, users are advised to deposit and withdraw standard amounts to protect their anonymity.
+2) Both the input amounts should be non-negative
+
+
+```circom=+
+ // verify correctness of transaction outputs
+    for (var tx = 0; tx < nOuts; tx++) {
+        outCommitmentHasher[tx] = Poseidon(3);
+        outCommitmentHasher[tx].inputs[0] <== outAmount[tx];
+        outCommitmentHasher[tx].inputs[1] <== outPubkey[tx];
+        outCommitmentHasher[tx].inputs[2] <== outBlinding[tx];
+        outCommitmentHasher[tx].out === outputCommitment[tx];
+
+        // Check that amount fits into 248 bits to prevent overflow
+        outAmountCheck[tx] = Num2Bits(248);
+        outAmountCheck[tx].in <== outAmount[tx];
+
+        sumOuts += outAmount[tx];
+    }
+
+    // check that there are no same nullifiers among all inputs
+    component sameNullifiers[nIns * (nIns - 1) / 2];
+    var index = 0;
+    for (var i = 0; i < nIns - 1; i++) {
+      for (var j = i + 1; j < nIns; j++) {
+          sameNullifiers[index] = IsEqual();
+          sameNullifiers[index].in[0] <== inputNullifier[i];
+          sameNullifiers[index].in[1] <== inputNullifier[j];
+          sameNullifiers[index].out === 0;
+          index++;
+      }
+    }
+
+    // verify amount invariant
+    sumIns + publicAmount === sumOuts;
+
+    // optional safety constraint to make sure extDataHash cannot be changed
+    signal extDataSquare <== extDataHash * extDataHash;
+}
+```
+Demo
+
+
+
+Deposit are done from mainnet, L1 and the funds are directed to tornado cash instance on xdai, a layer 2 Blockchain, by the omnibridge which requires 20 confirmation. While deposition, users are automatically registered on the Tornado cash network.
+
+Shield transaction, no external eth involved i.e. no deposits and no withdrawals. These transfer is done on L2, which makes them cheap. However, this requires both the users to be registered on Tornado cash.
+
+While withdrawing funds from tornado pool, the bridge funds the amount back into mainnet. Due to the transparency of ethereum, anyone can query the events on the blockchain and try to trace the withdrawal. This is why users are advised to withdraw standard amounts to help them blend among other transactions and thus preserve their privacy.
+
+The user design is elegant in the sense that the client never has to change network from the mainnet.
+
+The proof generation takes place in the browser. Tornado cash has a relatively smaller circuit with 30k constraints which takes about 5-10 seconds to compile using Web Assembly. This wasm file is embedded in the static UI of the Tornado cash smart contract.
+
+The transaction data gets fetched from the ethereum node. This downloads all the events linked to the smart contract, builds the merkle tree. The generated transaction is then sent to the relayer.
+
+Relayers are used by clients who don't have any eth balance to pay for gas fee. The nodes in th relayer take a cut from the transaction fee and withdraw funds for the customer, preserving their anonymity. They cannot change the transaction.
+
+
+
+
+
