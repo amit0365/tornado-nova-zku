@@ -2,7 +2,7 @@ Demo
 
 
 
-Deposit are done from mainnet, L1 and the funds are directed to tornado cash instance on xdai, a layer 2 Blockchain, by the omnibridge which requires 20 confirmation. While deposition, users are automatically registered on the Tornado cash network.
+Deposit are done from mainnet, L1 and the funds are directed to tornado cash instance on xdai, a layer 2 Blockchain. This is done by omnibridge after confirmations from the nodes, which typically takes 5 minutes for 20  validations. While depositing, users are automatically registered on the Tornado cash network.
 
 In a shielded transaction, no external eth involved i.e. no deposits and no withdrawals. This transfer is done on L2, which makes them cheap. However, this requires both the users to be registered on Tornado cash. Note that shielded here means that both the recipient and the amount are kept private from an external observer.
 

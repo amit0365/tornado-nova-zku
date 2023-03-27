@@ -1,5 +1,7 @@
 Tornado Cash Nova
 
+Tornado cash nova is the latest version of the protocol and is different from core in many ways.
+
 Instead of hashing two random numbers in the commitment as in the Core version. The Nova upgrade uses three numbers: amount, public key and blinding. The blinding is a random number used instead of the secret in the previous version. 
 
 The commitment is now computed by the hash of the three values mentioned above. Whereas the nullifier is the hash of commitment and the corresponding merkle path.
@@ -19,7 +21,11 @@ nullifier = hash(commitment, merklePath, sign(privKey, commitment, merklePath))
 */
 ```
 
-While depositing, the user needs to generate a snark proof, which was not required in the Core version. The 
+Unlike the core version, the user needs to generate a snark proof even while depositing some eth. The proof takes root, publicAmount and extDataHash as public inputs. extDataHash is 
+
+UTXO contents' for both the input and output transaction is also kept private. Path indices and Path Elements are also included in the input data to specify the node path in the merkle tree.
+
+Input Nullifier and Output Commitments are public inputs. By making them public, they are included in the transaction's proof, which is used to verify the transaction's validity.
 
 ```circom=
 // Universal JoinSplit transaction with nIns inputs and 2 outputs
@@ -121,7 +127,7 @@ The user starts by deposits 3 eth as the first transaction. This generates two i
 
 The second transaction has a shielded input of 3 eth. The observer only notices some input being marked as "spent" in the merkle tree without gaining any more information. The other input is a dummy as before. 
 
-The publicAmount will be set to -0.5 eth which is send to the withdraw address as the first output. The negative sign means that the contract pays the amount to some address. This is followed by another shielded output of 2.5 eth, which belongs to the public key of the withdrawer. Note that the latter amount is still in the Tornado cash network.
+The publicAmount will be set to -0.5 eth which is send to the withdraw address as the first output. The negative sign means that the contract pays the amount to some address. This is followed by another shielded output of 2.5 eth, which belongs to the public key of the withdrawer. Note that the latter amount is in the UTXO of th withdrawer on the Tornado cash network.
 
 Finally, to correctly execute the transaction we need to check the following:
 1) The sum of amount in inputs plus the publicAmount should be equal to the corresponding sum in the outputs. This is defined as amount variant in line 104.
