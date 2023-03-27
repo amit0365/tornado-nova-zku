@@ -1,6 +1,5 @@
-Demo
-
-
+# Tornado Nova Cash Demo
+###### tags: `Tornado Cash`
 
 Deposit are done from mainnet, L1 and the funds are directed to tornado cash instance on xdai, a layer 2 Blockchain. This is done by omnibridge after confirmations from the nodes, which typically takes 5 minutes for 20  validations. While depositing, users are automatically registered on the Tornado cash network.
 
