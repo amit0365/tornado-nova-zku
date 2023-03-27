@@ -1,4 +1,5 @@
-Tornado Cash Nova
+# Tornado Cash Nova
+###### tags: `Tornado Cash`
 
 Tornado cash nova is the latest version of the protocol and is different from core in many ways.
 
