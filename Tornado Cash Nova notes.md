@@ -4,7 +4,7 @@ Tornado cash nova is the latest version of the protocol and is different from co
 
 Instead of hashing two random numbers in the commitment as in the Core version. The Nova upgrade uses three numbers: amount, public key and blinding. The blinding is a random number used instead of the secret in the previous version. 
 
-The commitment is now computed by the hash of the three values mentioned above. Whereas the nullifier is the hash of commitment and the corresponding merkle path.
+The commitment is now computed by the hash of the three values mentioned above. Whereas the nullifier is the hash of commitment,the corresponding merkle path, and a signature of these two values with the private key.
 
 
 ```js
@@ -25,7 +25,7 @@ Unlike the core version, the user needs to generate a snark proof even while dep
 
 UTXO contents' for both the input and output transaction is also kept private. Path indices and Path Elements are also included in the input data to specify the node path in the merkle tree.
 
-Input Nullifier and Output Commitments are public inputs. By making them public, they are included in the transaction's proof, which is used to verify the transaction's validity.
+Input Nullifier and Output Commitments are public inputs. By making them public, they are included in the transaction's proof, which is used to verify the transaction's validity by the nodes on the   Ethereum network. why the priv key as input?
 
 ```circom=
 // Universal JoinSplit transaction with nIns inputs and 2 outputs
@@ -62,11 +62,11 @@ template Transaction(levels, nIns, nOuts, zeroLeaf) {
 
 The proof follows the construction of the usual split joint transaction scheme. In the case of  Alice sending Bob some money, we need both their UTXO's as inputs. 
 
-After the transaction, These leaves are marked spent in the merkle tree. This results in two different output UTXO's for Alice and Bob which are inserted into the merkle tree as new leaves.
+After the transaction, those input leaves are marked spent in the merkle tree. This results in two different output UTXO's for Alice and Bob which are inserted into the merkle tree as new leaves.
 
 For each input a commitment hash is computed using the UTXO. Then we check that the commitment is present in the merkle tree. However, when the input amount is 0 then we do not check the inclusion. 
 
-This would happen when a user deposits some amount. In this case there are no inputs from the user, so contract generates two input UTXO's with zero amount and random numbers in pubkey and blinding. 
+This would happen when a user deposits some amount. In this case there are no inputs from the user, so the contract generates two input UTXO's with zero amount and random numbers in pubkey and blinding. 
 
 Additionally we verify the correct signature by the private key corresponding to the given public key in the UTXO.
 
@@ -127,12 +127,7 @@ The user starts by deposits 3 eth as the first transaction. This generates two i
 
 The second transaction has a shielded input of 3 eth. The observer only notices some input being marked as "spent" in the merkle tree without gaining any more information. The other input is a dummy as before. 
 
-The publicAmount will be set to -0.5 eth which is send to the withdraw address as the first output. The negative sign means that the contract pays the amount to some address. This is followed by another shielded output of 2.5 eth, which belongs to the public key of the withdrawer. Note that the latter amount is in the UTXO of th withdrawer on the Tornado cash network.
-
-Finally, to correctly execute the transaction we need to check the following:
-1) The sum of amount in inputs plus the publicAmount should be equal to the corresponding sum in the outputs. This is defined as amount variant in line 104.
-
-2) Both the input amounts should be non-negative
+The publicAmount will be set to -0.5 eth which is send to the withdraw address as the first output. The negative sign means that the contract pays the amount to some address. This is followed by another shielded output of 2.5 eth, which belongs to the public key of the withdrawer. Note that the latter amount is in the UTXO of th withdrawer on Tornado cash network.
 
 
 ```circom=+
@@ -171,3 +166,12 @@ Finally, to correctly execute the transaction we need to check the following:
     signal extDataSquare <== extDataHash * extDataHash;
 }
 ```
+
+
+Finally, to correctly execute the transaction we need to check the following:
+
+1) The sum of amount in inputs plus the publicAmount should be equal to the corresponding sum in the outputs. This is defined as amount variant in line 104.
+
+2) Both the input amounts should be non-negative
+
+3) Check that the output of exdatahash square to make it vey dif
