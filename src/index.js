@@ -73,6 +73,8 @@ async function getProof({
     inPathIndices: inputMerklePathIndices,
     inPathElements: inputMerklePathElements,
 
+
+    
     // data for 2 transaction outputs
     outAmount: outputs.map((x) => x.amount),
     outBlinding: outputs.map((x) => x.blinding),
